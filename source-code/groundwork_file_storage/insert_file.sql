@@ -2,11 +2,11 @@
 -- changes). Returns the record as it stands; added says whether this call wrote it.
 WITH added AS (
   INSERT INTO groundwork_file_storage.files (file__key, file__sha256, file__size, file__content_type)
-  VALUES (:file/key, :file/sha256, :file/size, :file/content-type)
+  VALUES (param('file/key'), param('file/sha256'), param('file/size'), param('file/content-type'))
   ON CONFLICT (file__key) DO NOTHING
   RETURNING file__key, file__sha256, file__size, file__content_type, file__stored_at
 )
 SELECT file__key, file__sha256, file__size, file__content_type, file__stored_at, true AS added FROM added
 UNION ALL
 SELECT file__key, file__sha256, file__size, file__content_type, file__stored_at, false AS added FROM groundwork_file_storage.files
-WHERE file__key = :file/key AND NOT EXISTS (SELECT 1 FROM added)
+WHERE file__key = param('file/key') AND NOT EXISTS (SELECT 1 FROM added)

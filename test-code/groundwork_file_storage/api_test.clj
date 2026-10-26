@@ -99,7 +99,7 @@
 (deftest links-say-the-bucket-the-key-and-the-expiry
   (let [a    (file-storage/make-file-storage (make-settings 300) {:log log :meter (make-meter)})
         link (file-storage/make-signed-link a "orders/a b.png")]
-    (is (str/includes? link "/attic-test/orders/a%20b.png?"))
+    (is (str/includes? link "/file-storage-test/orders/a%20b.png?"))
     (is (str/includes? link "X-Amz-Expires=300"))
     (is (str/includes? link (str "X-Amz-Credential=" (or (System/getenv "FILE_STORAGE_TEST_S3_ACCESS_KEY") "key") "%2F"))
         "the access key, revealed, names the key that signed")
@@ -239,7 +239,7 @@
                 soon  (file-storage/make-signed-link short key)]
             (is (= [200 (seq png)] ((juxt :status (comp seq :body)) (fetch link))))
             (is (= 403 (:status (fetch (str/replace link #"X-Amz-Expires=60" "X-Amz-Expires=600")))))
-            (is (= 403 (:status (fetch (str/replace link #"/attic-test/orders/" "/attic-test/invoices/")))))
+            (is (= 403 (:status (fetch (str/replace link #"/file-storage-test/orders/" "/file-storage-test/invoices/")))))
             (is (= 200 (:status (fetch soon))))
             (Thread/sleep 2500)
             (is (= 403 (:status (fetch soon))) "past its expiry")
