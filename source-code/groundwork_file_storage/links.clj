@@ -1,87 +1,71 @@
 (ns groundwork-file-storage.links
   "Links a browser reads a file through.
 
-   A signed link: an S3 GET with SigV4's query-string signature, written
-   here (aws-api signs requests, but makes no presigned links). Anyone
-   holding it reads that one file until it expires; a private bucket stays
-   private. Path-style, on the settings' :endpoint:
+   A signed link: an S3 GET with SigV4's query-string signature
+   (groundwork-file-storage.signing). Anyone holding it reads that one
+   file until it expires; a private bucket stays private. Path-style, on
+   the settings' :endpoint:
    <endpoint>/<bucket>/<key>?X-Amz-…&X-Amz-Signature=…
+
+   How long it lives is the call's: [:from-now seconds], signed now; or
+   [:window seconds], signed at the start of the current window and
+   expiring at the end of the next, so every link to a file made within
+   one window is the same address, which a browser caches. :download-as,
+   a file name, has the answer say Content-Disposition: attachment with
+   that name (response-content-disposition, signed with the rest).
 
    A public link: the settings' :public-url and the key, for a bucket (or a
    CDN in front of it) every browser may read."
   (:require
    [clojure.string :as str]
-   [groundwork-settings.api :as settings])
+   [groundwork-file-storage.bucket :as bucket]
+   [groundwork-file-storage.signing :as signing])
   (:import
-   (java.net URI)
-   (java.nio.charset StandardCharsets)
-   (java.security MessageDigest)
-   (java.time Instant ZoneOffset)
-   (java.time.format DateTimeFormatter)
-   (java.util Locale)
-   (javax.crypto Mac)
-   (javax.crypto.spec SecretKeySpec)))
+   (java.time Instant)))
 
-(def ^:private ^DateTimeFormatter amz-date-format
-  (.withZone (DateTimeFormatter/ofPattern "yyyyMMdd'T'HHmmss'Z'" Locale/US) ZoneOffset/UTC))
+(defn find-signing-time-and-lifetime
+  "[the instant the link is signed at, how many seconds it reads] for
+   the link's :expiry at now."
+  [[shape seconds] ^Instant now]
+  (case shape
+    :from-now [now seconds]
+    :window   [(Instant/ofEpochSecond (* seconds (quot (.getEpochSecond now) seconds))) (* 2 seconds)]))
 
-(defn- hmac-sha256 ^bytes [^bytes signing-key ^String data]
-  (let [mac (Mac/getInstance "HmacSHA256")]
-    (.init mac (SecretKeySpec. signing-key "HmacSHA256"))
-    (.doFinal mac (.getBytes data StandardCharsets/UTF_8))))
+(defn find-lifetime
+  "How many seconds a link with this :expiry reads its file, at most."
+  [[shape seconds]]
+  (case shape
+    :from-now seconds
+    :window   (* 2 seconds)))
 
-(defn- turn-bytes-into-hex [^bytes bs]
-  (str/join (map #(format "%02x" (bit-and % 0xff)) bs)))
-
-(defn- hash-text [^String text]
-  (turn-bytes-into-hex (.digest (MessageDigest/getInstance "SHA-256") (.getBytes text StandardCharsets/UTF_8))))
-
-(defn- encode-for-uri
-  "RFC 3986 percent-encoding of every byte but the unreserved ones, as
-   SigV4 wants; / kept when keep-slash? (a path), else encoded (a query
-   value)."
-  [^String text keep-slash?]
-  (str/join
-   (for [b (.getBytes text StandardCharsets/UTF_8)
-         :let [i (bit-and b 0xff)
-               c (char i)]]
-     (cond
-       (or (<= (int \A) i (int \Z)) (<= (int \a) i (int \z)) (<= (int \0) i (int \9))
-           (contains? #{\- \_ \. \~} c)) (str c)
-       (and keep-slash? (= c \/))       "/"
-       :else                            (format "%%%02X" i)))))
-
-(defn- make-signing-key ^bytes [^String secret-key ^String day region]
-  (-> (.getBytes (str "AWS4" secret-key) StandardCharsets/UTF_8)
-      (hmac-sha256 day)
-      (hmac-sha256 region)
-      (hmac-sha256 "s3")
-      (hmac-sha256 "aws4_request")))
+(defn write-content-disposition
+  "attachment; filename=\"<the name, ASCII>\"; filename*=UTF-8''<the name,
+   percent-encoded> (RFC 6266): a browser that reads filename* takes the
+   name as it is, any other the ASCII one, every character outside
+   printable ASCII, \" \\ and % made _."
+  [file-name]
+  (str "attachment; filename=\"" (str/replace file-name #"[^\x20-\x7E]|[\"\\%]" "_") "\""
+       "; filename*=UTF-8''" (signing/encode-for-uri file-name false)))
 
 (defn make-signed-link
-  "A signed GET link to the object at the key, reading it for
-   :link-expiry-seconds from now."
-  [{:keys [endpoint bucket region access-key secret-key link-expiry-seconds]} object-key ^Instant now]
-  (let [uri          (URI. endpoint)
-        port         (.getPort uri)
-        host         (if (neg? port) (.getHost uri) (str (.getHost uri) ":" port))
-        amz-date     (.format amz-date-format now)
-        day          (subs amz-date 0 8)
-        scope        (str day "/" region "/s3/aws4_request")
-        path         (str "/" (encode-for-uri bucket false) "/" (encode-for-uri object-key true))
-        query        (->> {"X-Amz-Algorithm"     "AWS4-HMAC-SHA256"
-                           "X-Amz-Credential"    (str (settings/reveal access-key) "/" scope)
-                           "X-Amz-Date"          amz-date
-                           "X-Amz-Expires"       (str link-expiry-seconds)
-                           "X-Amz-SignedHeaders" "host"}
-                          (map (fn [[k v]] [(encode-for-uri k false) (encode-for-uri v false)]))
-                          (sort-by first)
-                          (map (fn [[k v]] (str k "=" v)))
-                          (str/join "&"))
-        canonical    (str/join "\n" ["GET" path query (str "host:" host "\n") "host" "UNSIGNED-PAYLOAD"])
-        to-sign      (str/join "\n" ["AWS4-HMAC-SHA256" amz-date scope (hash-text canonical)])
-        signature    (turn-bytes-into-hex (hmac-sha256 (make-signing-key (settings/reveal secret-key) day region) to-sign))]
-    (str (.getScheme uri) "://" host path "?" query "&X-Amz-Signature=" signature)))
+  "A signed GET link to the object at the key (see the namespace);
+   options {:expiry :download-as}, checked by the caller."
+  [settings object-key {:keys [expiry download-as]} ^Instant now]
+  (let [{:keys [scheme host]}     (bucket/find-endpoint-parts (:endpoint settings))
+        path                      (bucket/write-object-path (:bucket settings) object-key)
+        [signed-at lifetime]      (find-signing-time-and-lifetime expiry now)
+        query                     (signing/presign-query
+                                   {:method          "GET"
+                                    :path            path
+                                    :query           (if download-as
+                                                       [["response-content-disposition" (write-content-disposition download-as)]]
+                                                       [])
+                                    :headers         {"host" host}
+                                    :payload-hash    "UNSIGNED-PAYLOAD"
+                                    :expires-seconds lifetime}
+                                   (bucket/reveal-credentials settings)
+                                   signed-at)]
+    (str scheme "://" host path "?" query)))
 
 (defn make-public-link
   "The public address of the object at the key; throws when the settings
@@ -90,4 +74,4 @@
   (when-not public-url
     (throw (ex-info "This file storage has no :public-url: its files are read through signed links (make-signed-link)"
                     {:type :groundwork-file-storage/no-public-url :object-key object-key})))
-  (str public-url "/" (encode-for-uri object-key true)))
+  (str public-url "/" (signing/encode-for-uri object-key true)))

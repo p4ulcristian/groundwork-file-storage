@@ -16,6 +16,7 @@
            find-file
            list-files
            read-file-bytes
+           copy-file!
            delete-file!
            delete-file-after-commit!
            delete-unnamed-files!

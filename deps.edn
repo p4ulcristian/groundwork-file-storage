@@ -5,10 +5,9 @@
 {:paths ["source-code"]
 
  :deps
- {;; the bucket: cognitect's aws-api, S3 only
-  com.cognitect.aws/api       {:mvn/version "0.8.847"}
-  com.cognitect.aws/endpoints {:mvn/version "871.2.57.0"}
-  com.cognitect.aws/s3        {:mvn/version "871.2.55.11"}
+ {;; the bucket: none; the JDK's own java.net.http, every request signed by SigV4 written here
+  ;; the cache purge's request and answer, JSON
+  metosin/jsonista              {:mvn/version "1.0.2"}
   ;; the files table, a map for groundwork-postgres, and its queries
   ;; on its tidy-up branch, not released: a table map writes out :uniques and :checks,
   ;; a reference what it does on delete, update and when checked; migrate! takes

@@ -1,5 +1,7 @@
 # Every file stored is a row of `attic.files`
 
+> **Changed in part** by [One files table per store](2026-10-26-one-files-table-per-store.md) (2026-10-26): the table is the store's own, `:table`, its columns' keys the table's name (`:files/key`); `find-file` and `list-files` take the store.
+
 > **Changed in part** by [A file is deleted only when no row names it](2026-10-23-a-file-is-deleted-only-when-no-row-names-it.md) (2026-10-23): `delete-file!` deletes a row with its object when no row of the app names it.
 
 **Decision:** attic declares its table as a map for cellar, `files-table`, in its own schema: `attic.files`, columns `file__key` (primary key), `file__sha256`, `file__size`, `file__content_type`, `file__stored_at` (now). `store-file!` writes the row after the object, on the pool or in the caller's transaction; a row is never changed and attic deletes none. `find-file` and `list-files` (by prefix, after a key, a limit) read them. The app keeps a file's key in its own rows (an order's photo); the files table is what the bucket holds. Since v0.1.0.

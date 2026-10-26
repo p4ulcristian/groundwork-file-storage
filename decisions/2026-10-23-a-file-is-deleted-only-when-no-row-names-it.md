@@ -1,5 +1,7 @@
 # A file is deleted only when no row names it; Postgres's references say so
 
+> **Changed in part** by [One files table per store](2026-10-26-one-files-table-per-store.md), [A deleted public file is purged from Cloudflare's cache](2026-10-26-a-deleted-public-file-is-purged-from-the-cache.md) and [A store that never deletes](2026-10-26-a-store-that-never-deletes.md) (2026-10-26): a row names a file through a reference to its store's key column (`:files/key`); a deleted public file's address is purged after; a store with `:deletes? false` refuses every delete, `:refused`.
+
 > Since v0.1.3. Changes in part [Every file stored is a row of `attic.files`](2026-10-23-every-file-is-a-row-of-attic-files.md) ("no row is deleted by attic").
 
 **Decision:**

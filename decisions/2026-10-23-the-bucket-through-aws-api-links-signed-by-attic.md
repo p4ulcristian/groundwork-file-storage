@@ -1,5 +1,7 @@
 # The bucket through aws-api; signed links written by attic
 
+> **Replaced** by [The bucket through the JDK's http client; SigV4 written by groundwork-file-storage](2026-10-26-the-bucket-through-the-jdks-http-client.md) (2026-10-26): aws-api is dropped, every request signed by the library. A link's expiry is changed in part by [A link's lifetime and download name are the call's](2026-10-26-a-links-lifetime-and-download-name-are-the-calls.md) (2026-10-26).
+
 **Decision:** attic talks to the bucket through cognitect's aws-api (`:s3`), path-style at the settings' `:endpoint`, signed by `:access-key` and `:secret-key` for `:region`. Two things aws-api leaves out are attic's:
 
 - **Timeouts.** aws-api's own http client connects within a fixed 10 s and waits for an answer forever. attic hands it its own: java.net.http's, with the settings' `:connect-timeout-ms`, and every request with `:request-timeout-ms`, sent through aws-api's java.net.http `submit`. A request the bucket was too busy for (aws-api's rule) or that never connected (nothing was sent; Iron Rainbow's rule) is sent again, `:retries` `{:max-retries :first-wait-ms :max-wait-ms}`, doubling. The body is always bytes, so sending it again is safe.

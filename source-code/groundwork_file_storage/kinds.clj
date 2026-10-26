@@ -1,29 +1,29 @@
 (ns groundwork-file-storage.kinds
-  "What kind of file some bytes are, from the bytes, never from what the
-   browser says: the first bytes every format of its kind starts with.
-   Markup (SVG, HTML) is no kind groundwork-file-storage knows: a file a browser could run
-   is never stored to be shown."
+  "What kind of file some content is, from its bytes, never from what the
+   browser says. A kind is data:
+
+     {:content-type \"model/step\"
+      :extension    \"step\"
+      :recognize    (fn [{:keys [head file-name size open-content]}] true-or-false)
+      :served-as    :download}
+
+   :recognize is handed the content's first bytes (:head, at most the
+   store's :head-bytes), its file name or nil, its size, and
+   :open-content, (fn [] input-stream) of the whole content (the caller
+   closes it), for a kind that must read all of it to say yes (an SVG
+   checked clean). :served-as :inline is sent as it is; :download is
+   stored with Content-Disposition: attachment, so a browser saves it
+   rather than shows it.
+
+   groundwork-file-storage's own kinds come first, each told by the first
+   bytes every file of its format starts with; markup (SVG, HTML) is none
+   of them. The app's kinds, make-file-storage's :kinds, come after, in
+   their order; the first kind that says yes is the content's."
   (:require
    [clojure.string :as str])
   (:import
    (java.nio.charset StandardCharsets)
    (java.util Arrays)))
-
-(def extensions-of-content-types
-  "Every content type groundwork-file-storage tells by its bytes, and the extension its
-   files' keys end with."
-  {"image/png"          "png"
-   "image/jpeg"         "jpg"
-   "image/gif"          "gif"
-   "image/webp"         "webp"
-   "image/avif"         "avif"
-   "image/vnd.radiance" "hdr"
-   "application/pdf"    "pdf"
-   "model/gltf-binary"  "glb"
-   "model/gltf+json"    "gltf"})
-
-(def known-content-types
-  (set (keys extensions-of-content-types)))
 
 (defn- does-start-with? [^bytes bs offset signature]
   (and (>= (alength bs) (+ offset (count signature)))
@@ -41,20 +41,32 @@
 (defn- find-extension [file-name]
   (some-> file-name (str/split #"\.") last str/lower-case))
 
-(defn find-content-type
-  "The content type of the bytes, one of known-content-types, or nil for
-   anything else. The file's name (or nil) only tells a .gltf, which is
-   JSON, from other JSON."
-  [^bytes bs file-name]
-  (let [text (turn-head-into-text bs)]
-    (cond
-      (does-start-with? bs 0 [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A])                   "image/png"
-      (does-start-with? bs 0 [0xFF 0xD8 0xFF])                                            "image/jpeg"
-      (does-start-with? bs 0 (map int "GIF8"))                                            "image/gif"
-      (and (does-start-with? bs 0 (map int "RIFF")) (does-start-with? bs 8 (map int "WEBP"))) "image/webp"
-      (and (does-start-with? bs 4 (map int "ftyp")) (does-start-with? bs 8 (map int "avif"))) "image/avif"
-      (does-start-with? bs 0 (map int "glTF"))                                            "model/gltf-binary"
-      (does-start-with? bs 0 (map int "%PDF-"))                                           "application/pdf"
-      (or (str/starts-with? text "#?radiance") (str/starts-with? text "#?rgbe"))          "image/vnd.radiance"
-      (and (= "gltf" (find-extension file-name)) (str/starts-with? text "{"))             "model/gltf+json"
-      :else                                                                               nil)))
+(defn- make-kind [content-type extension recognize]
+  {:content-type content-type :extension extension :recognize recognize :served-as :inline})
+
+(def built-in-kinds
+  "The kinds groundwork-file-storage tells itself, every one served inline."
+  [(make-kind "image/png" "png" (fn [{:keys [head]}] (does-start-with? head 0 [0x89 0x50 0x4E 0x47 0x0D 0x0A 0x1A 0x0A])))
+   (make-kind "image/jpeg" "jpg" (fn [{:keys [head]}] (does-start-with? head 0 [0xFF 0xD8 0xFF])))
+   (make-kind "image/gif" "gif" (fn [{:keys [head]}] (does-start-with? head 0 (map int "GIF8"))))
+   (make-kind "image/webp" "webp" (fn [{:keys [head]}] (and (does-start-with? head 0 (map int "RIFF"))
+                                                            (does-start-with? head 8 (map int "WEBP")))))
+   (make-kind "image/avif" "avif" (fn [{:keys [head]}] (and (does-start-with? head 4 (map int "ftyp"))
+                                                            (does-start-with? head 8 (map int "avif")))))
+   (make-kind "model/gltf-binary" "glb" (fn [{:keys [head]}] (does-start-with? head 0 (map int "glTF"))))
+   (make-kind "application/pdf" "pdf" (fn [{:keys [head]}] (does-start-with? head 0 (map int "%PDF-"))))
+   (make-kind "image/vnd.radiance" "hdr" (fn [{:keys [head]}] (let [text (turn-head-into-text head)]
+                                                                (or (str/starts-with? text "#?radiance")
+                                                                    (str/starts-with? text "#?rgbe")))))
+   ;; JSON: a .gltf only by its name
+   (make-kind "model/gltf+json" "gltf" (fn [{:keys [head file-name]}] (and (= "gltf" (find-extension file-name))
+                                                                           (str/starts-with? (turn-head-into-text head) "{"))))])
+
+(def built-in-content-types
+  (set (map :content-type built-in-kinds)))
+
+(defn find-kind
+  "The first of the kinds that recognizes the content
+   ({:head :file-name :size :open-content}), or nil."
+  [kinds content]
+  (first (filter #((:recognize %) content) kinds)))
