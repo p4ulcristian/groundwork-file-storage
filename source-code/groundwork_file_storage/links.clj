@@ -1,10 +1,11 @@
 (ns groundwork-file-storage.links
   "Links a browser reads a file through.
 
-   A signed link: an S3 GET with SigV4's query-string signature
-   (groundwork-file-storage.signing). Anyone holding it reads that one
-   file until it expires; a private bucket stays private. Path-style, on
-   the settings' :endpoint:
+   A signed link: an S3 GET with SigV4's query-string signature, made by
+   the AWS SDK's S3Presigner and signed by its SigV4 signer
+   (groundwork-file-storage.bucket/presign-get). Anyone holding it reads
+   that one file until it expires; a private bucket stays private.
+   Path-style, on the settings' :endpoint:
    <endpoint>/<bucket>/<key>?X-Amz-…&X-Amz-Signature=…
 
    How long it lives is the call's: [:from-now seconds], signed now; or
@@ -18,10 +19,10 @@
    CDN in front of it) every browser may read."
   (:require
    [clojure.string :as str]
-   [groundwork-file-storage.bucket :as bucket]
-   [groundwork-file-storage.signing :as signing])
+   [groundwork-file-storage.bucket :as bucket])
   (:import
-   (java.time Instant)))
+   (java.time Instant)
+   (software.amazon.awssdk.utils.http SdkHttpUtils)))
 
 (defn find-signing-time-and-lifetime
   "[the instant the link is signed at, how many seconds it reads] for
@@ -45,27 +46,16 @@
    printable ASCII, \" \\ and % made _."
   [file-name]
   (str "attachment; filename=\"" (str/replace file-name #"[^\x20-\x7E]|[\"\\%]" "_") "\""
-       "; filename*=UTF-8''" (signing/encode-for-uri file-name false)))
+       "; filename*=UTF-8''" (SdkHttpUtils/urlEncode file-name)))
 
 (defn make-signed-link
-  "A signed GET link to the object at the key (see the namespace);
-   options {:expiry :download-as}, checked by the caller."
-  [settings object-key {:keys [expiry download-as]} ^Instant now]
-  (let [{:keys [scheme host]}     (bucket/find-endpoint-parts (:endpoint settings))
-        path                      (bucket/write-object-path (:bucket settings) object-key)
-        [signed-at lifetime]      (find-signing-time-and-lifetime expiry now)
-        query                     (signing/presign-query
-                                   {:method          "GET"
-                                    :path            path
-                                    :query           (if download-as
-                                                       [["response-content-disposition" (write-content-disposition download-as)]]
-                                                       [])
-                                    :headers         {"host" host}
-                                    :payload-hash    "UNSIGNED-PAYLOAD"
-                                    :expires-seconds lifetime}
-                                   (bucket/reveal-credentials settings)
-                                   signed-at)]
-    (str scheme "://" host path "?" query)))
+  "A signed GET link to the object at the key (see the namespace), by the
+   store's presigner; options {:expiry :download-as}, checked by the
+   caller."
+  [presigner settings object-key {:keys [expiry download-as]} ^Instant now]
+  (let [[signed-at lifetime] (find-signing-time-and-lifetime expiry now)]
+    (bucket/presign-get presigner settings object-key (when download-as (write-content-disposition download-as))
+                        signed-at lifetime)))
 
 (defn make-public-link
   "The public address of the object at the key; throws when the settings
@@ -74,4 +64,4 @@
   (when-not public-url
     (throw (ex-info "This file storage has no :public-url: its files are read through signed links (make-signed-link)"
                     {:type :groundwork-file-storage/no-public-url :object-key object-key})))
-  (str public-url "/" (signing/encode-for-uri object-key true)))
+  (str public-url "/" (SdkHttpUtils/urlEncodeIgnoreSlashes object-key)))

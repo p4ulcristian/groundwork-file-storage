@@ -1,5 +1,7 @@
 # A deleted public file is purged from Cloudflare's cache
 
+> **Changed in part** by [The bucket through the AWS SDK for Java v2](2026-10-27-the-bucket-through-the-aws-sdk-for-java-v2.md) (2026-10-27, v0.2.1): the purge is sent through a JDK http client of its own, the bucket's requests going through the SDK.
+
 > Since v0.2.0. Changes in part [A file is deleted only when no row names it](2026-10-23-a-file-is-deleted-only-when-no-row-names-it.md) (a purge after the delete), [Every value that sets behaviour is a setting](2026-10-23-every-value-that-sets-behaviour-is-a-setting.md) (`:cache-purge`) and [Secrets are safe's wrapped secrets](2026-10-23-secrets-are-safes-wrapped-secrets.md) (the API token).
 
 **Decision:** a store with a public address purges a deleted file's address from Cloudflare's cache after it deletes the object. The setting `:cache-purge` says how, written out on every store:

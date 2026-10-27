@@ -1,5 +1,7 @@
 # The bucket through the JDK's http client; SigV4 written by groundwork-file-storage
 
+> **Replaced** by [The bucket through the AWS SDK for Java v2](2026-10-27-the-bucket-through-the-aws-sdk-for-java-v2.md) (2026-10-27, v0.2.1): the SDK's S3Client and S3Presigner, on its Apache 5 http client; the SigV4 written here and its test vectors are deleted.
+
 > Since v0.2.0. Replaces [The bucket through aws-api; signed links written by attic](2026-10-23-the-bucket-through-aws-api-links-signed-by-attic.md). Changes in part [attic is its own library](2026-10-23-attic-is-its-own-library.md) (no aws-api), [Secrets are safe's wrapped secrets](2026-10-23-secrets-are-safes-wrapped-secrets.md) (where the key is revealed) and [Every value that sets behaviour is a setting](2026-10-23-every-value-that-sets-behaviour-is-a-setting.md) (`:region`).
 
 **Decision:** groundwork-file-storage talks to the bucket through the JDK's own `java.net.http.HttpClient`, one per store, and signs every request itself with AWS Signature Version 4 (`groundwork-file-storage.signing`): put, get, delete, list (ListObjectsV2) and copy (CopyObject), path-style at `:endpoint`, `<endpoint>/<bucket>/<key>`. cognitect's aws-api is dropped. The same client sends the cache purge ([its decision](2026-10-26-a-deleted-public-file-is-purged-from-the-cache.md)); there is no second one.

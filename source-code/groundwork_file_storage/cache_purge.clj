@@ -6,16 +6,69 @@
      Authorization: Bearer <:api-token>
      {\"files\":[\"https://files.shop.example/shops/photos/….png\"]}
 
-   Cloudflare answers {\"success\":true,…}. Sent through the store's one
-   http client, with the settings' :request-timeout-ms and :retries."
+   Cloudflare answers {\"success\":true,…}. A REST call of one POST, sent
+   through the JDK's http client (the store's one for its purges), with
+   the settings' :connect-timeout-ms, :request-timeout-ms and :retries."
   (:require
-   [groundwork-file-storage.bucket :as bucket]
+   [clojure.string :as str]
    [groundwork-settings.api :as groundwork-settings]
    [jsonista.core :as json])
   (:import
-   (java.net URI)
-   (java.net.http HttpRequest HttpRequest$BodyPublishers HttpResponse$BodyHandlers)
+   (java.net ConnectException URI)
+   (java.net.http HttpClient HttpClient$Redirect HttpClient$Version HttpConnectTimeoutException HttpRequest
+                  HttpRequest$BodyPublishers HttpResponse HttpResponse$BodyHandlers)
    (java.time Duration)))
+
+(defn make-http-client
+  "The JDK's http client: its connect timeout the settings', HTTP/1.1,
+   redirects never followed. The store's one client for the cache purge."
+  [{:keys [connect-timeout-ms]}]
+  (-> (HttpClient/newBuilder)
+      (.connectTimeout (Duration/ofMillis connect-timeout-ms))
+      (.followRedirects HttpClient$Redirect/NEVER)
+      (.version HttpClient$Version/HTTP_1_1)
+      (.build)))
+
+(defn stop-http-client! [^HttpClient client]
+  (.close client))
+
+(defn- did-never-connect?
+  "Whether the request never reached the other side: the connection timed
+   out or was refused."
+  [^Throwable e]
+  (loop [^Throwable t e]
+    (cond
+      (nil? t) false
+      (or (instance? HttpConnectTimeoutException t) (instance? ConnectException t)) true
+      :else (recur (.getCause t)))))
+
+(def ^:private busy-statuses
+  "The answers that say: send it again later."
+  #{429 503 504})
+
+(defn send-with-retries!
+  "Sends (make-request), a fresh java.net.http request each time, and
+   returns {:status :headers :body}, the body as the handler reads it.
+   A busy answer, or a request that never connected, is sent again by
+   :retries {:max-retries :first-wait-ms :max-wait-ms}: waiting
+   :first-wait-ms, twice as long each time, never longer than
+   :max-wait-ms. The last busy answer is returned; the last failure to
+   connect is thrown."
+  [^HttpClient client {:keys [max-retries first-wait-ms max-wait-ms]} make-request body-handler]
+  (loop [retries 0]
+    (let [wait   (when (< retries max-retries)
+                   (min max-wait-ms (* first-wait-ms (bit-shift-left 1 retries))))
+          answer (try
+                   (let [^HttpResponse response (.send client ^HttpRequest (make-request) body-handler)]
+                     {:status  (.statusCode response)
+                      :headers (into {} (map (fn [[k vs]] [(str/lower-case k) (first vs)])) (.map (.headers response)))
+                      :body    (.body response)})
+                   (catch Exception e
+                     (if (and wait (did-never-connect? e)) ::again (throw e))))]
+      (if (or (= ::again answer) (and wait (contains? busy-statuses (:status answer))))
+        (do (Thread/sleep (long wait))
+            (recur (inc retries)))
+        answer))))
 
 (defn purge-address!
   "Purges the address from the cache. Returns :purged; throws
@@ -29,7 +82,7 @@
                            (assoc data :type :groundwork-file-storage/cache-purge-failed :address address)
                            cause))
         answer  (try
-                  (bucket/send-with-retries!
+                  (send-with-retries!
                    client retries
                    (fn []
                      (-> (HttpRequest/newBuilder (URI. (str api-url "/zones/" zone-id "/purge_cache")))

@@ -60,7 +60,6 @@
    [groundwork-file-storage.links :as links]
    [groundwork-file-storage.metrics :as metrics]
    [groundwork-file-storage.settings :as settings]
-   [groundwork-file-storage.signing :as signing]
    [groundwork-file-storage.table :as table]
    [groundwork-file-storage.upload :as upload]
    [groundwork-postgres.api :as postgres]
@@ -70,7 +69,7 @@
    (java.nio.file Files OpenOption Path)
    (java.security MessageDigest)
    (java.time Instant)
-   (java.util Arrays)))
+   (java.util Arrays HexFormat)))
 
 ;; -----------------------------------------------------------------------------
 ;; Settings and the table
@@ -127,7 +126,9 @@
     (logs/with-context log {})
     (metrics/declare-metrics! meter)
     {:settings            file-storage-settings
-     :client              (bucket/make-http-client file-storage-settings)
+     :client              (bucket/make-client file-storage-settings)
+     :presigner           (bucket/make-presigner file-storage-settings)
+     :http-client         (cache-purge/make-http-client file-storage-settings)
      :kinds               all-kinds
      :known-content-types (set (map :content-type all-kinds))
      :queries             (table/make-queries (:table file-storage-settings))
@@ -135,9 +136,11 @@
      :meter               meter}))
 
 (defn stop-file-storage!
-  "Stops the file storage's http client."
+  "Stops the file storage's S3 client, its presigner and its http client."
   [file-storage]
-  (bucket/stop-http-client! (:client file-storage)))
+  (bucket/stop-client! (:client file-storage))
+  (bucket/stop-client! (:presigner file-storage))
+  (cache-purge/stop-http-client! (:http-client file-storage)))
 
 ;; -----------------------------------------------------------------------------
 ;; Storing
@@ -166,19 +169,23 @@
      :body         bytes}))
 
 (defn- hash-content
-  "[the content's sha256 as hex, how many bytes it has]: a file read in
-   pieces, never whole."
+  "[the content's sha256 as hex, how many bytes it has, its MD5 as hex]:
+   a file read once, in pieces, never whole. The sha256 names the key; the
+   MD5 goes with the put as Content-MD5, which the bucket checks."
   [{:keys [body open-content]}]
-  (let [digest (MessageDigest/getInstance "SHA-256")]
+  (let [sha256 (MessageDigest/getInstance "SHA-256")
+        md5    (MessageDigest/getInstance "MD5")
+        hex    #(.formatHex (HexFormat/of) ^bytes %)]
     (if (bytes? body)
-      [(signing/turn-bytes-into-hex (.digest digest ^bytes body)) (alength ^bytes body)]
+      [(hex (.digest sha256 ^bytes body)) (alength ^bytes body) (hex (.digest md5 ^bytes body))]
       (with-open [^InputStream in (open-content)]
         (let [buffer (byte-array 65536)]
           (loop [total 0]
             (let [n (.read in buffer)]
               (if (neg? n)
-                [(signing/turn-bytes-into-hex (.digest digest)) total]
-                (do (.update digest buffer 0 n)
+                [(hex (.digest sha256)) total (hex (.digest md5))]
+                (do (.update sha256 buffer 0 n)
+                    (.update md5 buffer 0 n)
                     (recur (+ total n)))))))))))
 
 (defn- make-key
@@ -210,13 +217,13 @@
   "Puts the content unless its key is recorded, then records it; the
    row."
   [{:keys [settings client meter queries]} pool-or-transaction described key-prefix kind]
-  (let [[sha256 size] (hash-content described)
+  (let [[sha256 size md5] (hash-content described)
         object-key    (make-key key-prefix sha256 (:extension kind))
         recorded      (postgres/find-one-row pool-or-transaction (:find-file queries) {:file/key object-key})]
     (if recorded
       (do (metrics/count-stored! meter :already-stored)
           (check-recorded recorded object-key sha256))
-      (let [put (try (bucket/put-object-once! client settings object-key (:body described) sha256
+      (let [put (try (bucket/put-object-once! client settings object-key (:body described) md5
                                               (:content-type kind) (find-content-disposition kind))
                      (catch Exception e
                        (metrics/count-bucket-failure! meter :store)
@@ -380,10 +387,10 @@
 (defn- purge-from-cache!
   "A deleted public file's address purged from Cloudflare's cache, when
    the store has a :cache-purge map; counted, a failure thrown."
-  [{:keys [settings client meter]} object-key]
+  [{:keys [settings http-client meter]} object-key]
   (when (map? (:cache-purge settings))
     (try
-      (cache-purge/purge-address! client settings (links/make-public-link settings object-key))
+      (cache-purge/purge-address! http-client settings (links/make-public-link settings object-key))
       (metrics/count-purge! meter :purged)
       (catch Exception e
         (metrics/count-purge! meter :failed)
@@ -482,11 +489,11 @@
    answer gives as Content-Disposition: attachment. Whoever holds it
    reads that file until it expires: hand it only to whom the app lets see
    the file."
-  [{:keys [settings]} object-key options]
+  [{:keys [settings presigner]} object-key options]
   (settings/check-data-for-shape "The options" :groundwork-file-storage/bad-options settings/link-options-shape
                                  (partial settings/find-link-rule-errors (:longest-link-seconds settings) links/find-lifetime)
                                  options)
-  (links/make-signed-link settings object-key options (Instant/now)))
+  (links/make-signed-link presigner settings object-key options (Instant/now)))
 
 (defn make-public-link
   "The file's address under the settings' :public-url; throws

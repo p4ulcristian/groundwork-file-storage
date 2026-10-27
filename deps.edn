@@ -5,7 +5,11 @@
 {:paths ["source-code"]
 
  :deps
- {;; the bucket: none; the JDK's own java.net.http, every request signed by SigV4 written here
+ {;; the bucket: the AWS SDK for Java v2's S3 client and S3Presigner (SigV4, the S3 protocol, its
+  ;; XML, retries), on the SDK's Apache 5 http client; its async Netty client is never used
+  software.amazon.awssdk/s3             {:mvn/version "2.57.4"
+                                         :exclusions  [software.amazon.awssdk/netty-nio-client]}
+  software.amazon.awssdk/apache5-client {:mvn/version "2.57.4"}
   ;; the cache purge's request and answer, JSON
   metosin/jsonista              {:mvn/version "1.0.2"}
   ;; the files table, a map for groundwork-postgres, and its queries

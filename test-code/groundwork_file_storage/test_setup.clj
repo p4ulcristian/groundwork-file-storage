@@ -5,7 +5,6 @@
   (:require
    [groundwork-file-storage.api :as file-storage]
    [groundwork-file-storage.bucket :as bucket]
-   [groundwork-file-storage.signing :as signing]
    [groundwork-logs.api :as logs]
    [groundwork-metrics.api :as metrics]
    [groundwork-postgres.api :as postgres]
@@ -62,8 +61,6 @@
   "The store's bucket, made when missing and emptied, through
    groundwork-file-storage's own client."
   [{:keys [client settings]}]
-  (bucket/send-to-bucket! client settings {:method "PUT" :path (bucket/write-object-path (:bucket settings) nil) :query []
-                                           :headers {} :body nil :payload-hash signing/empty-payload-hash}
-                          :bytes)
+  (bucket/make-bucket! client settings)
   (doseq [object-key (bucket/list-object-keys client settings "")]
     (bucket/delete-object! client settings object-key)))

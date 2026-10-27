@@ -1,5 +1,7 @@
 # Secrets are safe's wrapped secrets
 
+> **Changed in part** by [The bucket through the AWS SDK for Java v2](2026-10-27-the-bucket-through-the-aws-sdk-for-java-v2.md) (2026-10-27, v0.2.1): both keys are revealed by groundwork-file-storage's credentials provider each time the SDK signs a request or a link (`groundwork-file-storage.bucket`).
+
 > **Changed in part** by [The bucket through the JDK's http client](2026-10-26-the-bucket-through-the-jdks-http-client.md) and [A deleted public file is purged from Cloudflare's cache](2026-10-26-a-deleted-public-file-is-purged-from-the-cache.md) (2026-10-26): both keys are revealed for each request's and each link's signature (`groundwork-file-storage.bucket/reveal-credentials`), no aws-api client holds them; Cloudflare's `:api-token` is a secret too, revealed only in the purge's Authorization header.
 
 > Changes in part [Every value that sets behaviour is a setting](2026-10-23-every-value-that-sets-behaviour-is-a-setting.md) (`:access-key` and `:secret-key` are `safe/secret`, no longer text). Since v0.1.1, on [safe](https://github.com/p4ulcristian/safe) v0.1.0.

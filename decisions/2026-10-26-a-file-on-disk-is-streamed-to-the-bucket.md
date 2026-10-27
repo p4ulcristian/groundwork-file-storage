@@ -1,5 +1,7 @@
 # A file on disk is stored streamed, never held whole
 
+> **Changed in part** by [The bucket through the AWS SDK for Java v2](2026-10-27-the-bucket-through-the-aws-sdk-for-java-v2.md) (2026-10-27, v0.2.1): the put is the SDK's, from `RequestBody.fromFile`; what the bucket checks is the `Content-MD5` of the bytes hashed, computed in the same read as the sha256 (a file that changed is refused `BadDigest`), not the sha256 in `x-amz-content-sha256`.
+
 > Since v0.2.0. Changes in part [Every value that sets behaviour is a setting](2026-10-23-every-value-that-sets-behaviour-is-a-setting.md) (`store-file!` takes its content as a map).
 
 **Decision:** `store-file!` takes the content as `{:path "/a/file/on/disk"}` or `{:bytes byte-array}`, checked with the options, every problem at once (`:groundwork-file-storage/bad-options`; a path that is no readable file is named under `:content`). From a path:

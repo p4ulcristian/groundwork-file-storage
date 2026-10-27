@@ -12,6 +12,7 @@
    [groundwork-file-storage.api :as file-storage]
    [groundwork-file-storage.bucket :as bucket]
    [groundwork-file-storage.kinds :as kinds]
+   [groundwork-file-storage.links :as links]
    [groundwork-file-storage.test-setup :as setup :refer [log lines make-settings make-store s3-endpoint pg-port]]
    [groundwork-metrics.api :as metrics]
    [groundwork-postgres.api :as postgres]
@@ -162,7 +163,13 @@
     (testing "a window: signed at its start, read until the end of the next, the same address all through it"
       (is (str/includes? windowed "X-Amz-Expires=7200"))
       (is (re-find #"T\d\d0000Z$" signed) "an hour's window starts on the hour")
-      (is (= windowed (file-storage/make-signed-link a "orders/a b.png" {:expiry [:window 3600] :download-as nil}))))
+      (is (= windowed (file-storage/make-signed-link a "orders/a b.png" {:expiry [:window 3600] :download-as nil})))
+      (let [at #(links/make-signed-link (:presigner a) (:settings a) "orders/a b.png" {:expiry [:window 3600] :download-as nil}
+                                        (java.time.Instant/parse %))]
+        (is (= (at "2026-10-27T10:00:00Z") (at "2026-10-27T10:17:43Z") (at "2026-10-27T10:59:59Z"))
+            "the same address at the window's first second, within it, and at its last")
+        (is (str/includes? (at "2026-10-27T10:17:43Z") "X-Amz-Date=20261027T100000Z"))
+        (is (not= (at "2026-10-27T10:59:59Z") (at "2026-10-27T11:00:00Z")) "the next window, another")))
     (testing "every key required; no longer than the store allows; a name without a control character or a /"
       (is (= {:expiry ["should read for at most the store's :longest-link-seconds, 86400 (this one reads for up to 172800)"]}
              (:errors (find-problems #(file-storage/make-signed-link a "x.png" {:expiry [:window 86400] :download-as nil})))))
@@ -285,6 +292,13 @@
                                               {:key-prefix "invoices/large" :allowed-content-types #{"application/pdf"} :file-name nil})]
             (is (= {:file/sha256 (sha256-of bs) :file/size (alength bs)} (select-keys row [:file/sha256 :file/size])))
             (is (= (seq bs) (seq (file-storage/read-file-bytes a (:file/key row)))))))
+
+        (testing "the bucket checks the Content-MD5 of the bytes hashed: other bytes are refused, nothing stored"
+          (let [md5-of-png (.formatHex (java.util.HexFormat/of) (.digest (MessageDigest/getInstance "MD5") ^bytes png))
+                problem    (find-problems #(bucket/put-object-once! (:client a) (:settings a) "changed/x.pdf" pdf md5-of-png
+                                                                    "application/pdf" nil))]
+            (is (= [:groundwork-file-storage/bucket-failed 400 "BadDigest"] ((juxt :type :status :code) problem)))
+            (is (= [] (bucket/list-object-keys (:client a) (:settings a) "changed/")))))
 
         (testing "an app's :download kind: stored with Content-Disposition: attachment, the browser's word never asked"
           (let [row  (file-storage/store-file! a pool {:bytes step} {:key-prefix "parts" :allowed-content-types #{"model/step"} :file-name "part.pdf"})

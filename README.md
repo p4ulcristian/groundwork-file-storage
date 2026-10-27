@@ -19,8 +19,9 @@ Needs [groundwork-postgres](https://github.com/p4ulcristian/groundwork-postgres)
 [groundwork-metrics](https://github.com/p4ulcristian/groundwork-metrics) (handed in),
 [groundwork-settings](https://github.com/p4ulcristian/groundwork-settings) (the bucket's key and
 Cloudflare's token are its secrets), ring-core (the multipart parser), jsonista (the cache purge)
-and malli. The bucket is reached through the JDK's own `java.net.http`, every request signed
-with SigV4 by the library ([why](decisions/2026-10-26-the-bucket-through-the-jdks-http-client.md)).
+and malli. The bucket is reached through the AWS SDK for Java v2 (its S3 client and S3Presigner,
+on its Apache 5 http client), set for R2 as R2 documents
+([why](decisions/2026-10-27-the-bucket-through-the-aws-sdk-for-java-v2.md)).
 One public namespace, `groundwork-file-storage.api`.
 
 ## The api
@@ -133,13 +134,13 @@ name, its size and a way to read all of it, and `:served-as` `:inline` or
 ([why](decisions/2026-10-26-the-apps-own-kinds-are-data.md)).
 
 A key is `<prefix>/<the sha256's first 32 hex digits as a uuid>.<extension>`;
-the object is put with `If-None-Match: *` and its sha256, which the bucket
-checks, and the row keeps the full sha256
+the object is put with `If-None-Match: *` and the `Content-MD5` of the bytes
+hashed, which the bucket checks, and the row keeps the full sha256
 ([why](decisions/2026-10-23-a-file-is-named-by-its-content.md)).
 The object is put before its row is written: a row always has its object,
 and an object whose row was rolled back is found again by the same bytes
 ([why](decisions/2026-10-23-every-file-is-a-row-of-attic-files.md)). A file
-on disk is hashed in pieces and put from the file with its known length:
+on disk is hashed in pieces (its sha256 and MD5 in one read) and put from the file with its known length:
 a store holds a buffer, whatever the file's size
 ([why](decisions/2026-10-26-a-file-on-disk-is-streamed-to-the-bucket.md)).
 
@@ -209,9 +210,8 @@ pg_ctl -D ~/.cache/file-storage-test/pg stop
 ```
 
 The streaming test writes a 256 MB file (sparse) under `java.io.tmpdir`
-and stores it from a JVM with a 64 MB heap. SigV4 is tested against AWS's
-published test suite. Cloudflare's purge is answered by a stand-in server
-in the test.
+and stores it from a JVM with a 64 MB heap. Cloudflare's purge is answered
+by a stand-in server in the test.
 
 Why SeaweedFS and not a fake:
 [the decision](decisions/2026-10-23-tests-run-against-seaweedfs-and-postgres.md).
