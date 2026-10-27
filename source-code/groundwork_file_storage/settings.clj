@@ -78,7 +78,7 @@
    :retries: a request the bucket (or Cloudflare) was too busy for (429,
    503, 504), or that never connected, is sent again, at most
    :max-retries more times, waiting :first-wait-ms, then twice as long
-   each time, never longer than :max-wait-ms."
+   each time, never longer than :max-wait-ms; either 0, at once."
   [:map {:closed true}
    [:endpoint [:re {:error/message "should be an address starting with http:// or https://"} #"^https?://[^/]+$"]]
    [:bucket [:string {:min 1}]]

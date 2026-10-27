@@ -93,6 +93,14 @@
     (is (nil? (find-type (byte-array 0) nil)))
     (is (= "model/step" (find-type step "part.stp")) "an app's kind, after the built-in ones")))
 
+(deftest a-retry-wait-of-0-sends-again-at-once
+  (doseq [retries [{:max-retries 0 :first-wait-ms 0 :max-wait-ms 0}
+                   {:max-retries 2 :first-wait-ms 0 :max-wait-ms 400}
+                   {:max-retries 2 :first-wait-ms 100 :max-wait-ms 0}]]
+    (let [store (make-store (assoc (make-settings) :retries retries) [])]
+      (is (some? (:client store)) (str "the shape takes it, and so does the SDK: " (pr-str retries)))
+      (file-storage/stop-file-storage! store))))
+
 (deftest settings-are-every-key-written-out
   (is (= {:region ["missing required key"] :retries ["missing required key"] :deletes? ["missing required key"]}
          (:errors (find-problems #(make-store (dissoc (make-settings) :region :retries :deletes?) [])))))

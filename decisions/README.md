@@ -23,4 +23,5 @@ attic is groundwork's file storage (groundwork: the libraries and the composer o
 - [A file is copied between stores by the bucket](2026-10-26-a-file-is-copied-between-stores-by-the-bucket.md)
 - [A deleted public file is purged from Cloudflare's cache](2026-10-26-a-deleted-public-file-is-purged-from-the-cache.md), changed in part by [The bucket through the AWS SDK for Java v2](2026-10-27-the-bucket-through-the-aws-sdk-for-java-v2.md)
 - [A store that never deletes](2026-10-26-a-store-that-never-deletes.md)
-- [The bucket through the AWS SDK for Java v2](2026-10-27-the-bucket-through-the-aws-sdk-for-java-v2.md) (v0.2.1)
+- [The bucket through the AWS SDK for Java v2](2026-10-27-the-bucket-through-the-aws-sdk-for-java-v2.md) (v0.2.1), changed in part by [A retry wait of 0 sends again at once](2026-10-27-a-retry-wait-of-0-sends-again-at-once.md)
+- [A retry wait of 0 sends again at once](2026-10-27-a-retry-wait-of-0-sends-again-at-once.md) (v0.2.3)

@@ -1,5 +1,7 @@
 # The bucket through the AWS SDK for Java v2
 
+> **Changed in part** by [A retry wait of 0 sends again at once](2026-10-27-a-retry-wait-of-0-sends-again-at-once.md) (2026-10-27): a wait of 0 is the SDK's `retryImmediately`.
+
 > The user's decision, 2026-10-27 (keep groundwork minimal, but what a vetted library solves is solved with that library: crypto, tokens, request signing, protocols, parsers, formats; hand-written code that only saves a dependency is wrong). Since v0.2.1. Replaces [The bucket through the JDK's http client; SigV4 written by groundwork-file-storage](2026-10-26-the-bucket-through-the-jdks-http-client.md). Changes in part [A file on disk is stored streamed, never held whole](2026-10-26-a-file-on-disk-is-streamed-to-the-bucket.md) (what the bucket checks), [Secrets are safe's wrapped secrets](2026-10-23-secrets-are-safes-wrapped-secrets.md) (where the key is revealed) and [A deleted public file is purged from Cloudflare's cache](2026-10-26-a-deleted-public-file-is-purged-from-the-cache.md) (its client).
 
 **Decision:** groundwork-file-storage talks to the bucket through the AWS SDK for Java v2 (`software.amazon.awssdk/s3` 2.57.4, on the SDK's `apache5-client`; its Netty client excluded): one `S3Client` and one `S3Presigner` per store. The hand-written SigV4 (`groundwork-file-storage.signing`), its S3 requests and XML reading, and AWS's SigV4 test vectors are deleted: none tested anything of ours.

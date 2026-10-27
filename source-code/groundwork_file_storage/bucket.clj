@@ -82,13 +82,22 @@
   (boolean (or (and (instance? SdkServiceException e) (contains? busy-statuses (.statusCode ^SdkServiceException e)))
                (did-never-connect? e))))
 
+(defn- make-backoff
+  "How long a retry waits: :first-wait-ms, twice as long each time, never
+   longer than :max-wait-ms; either 0, no wait (the SDK's exponential
+   backoff takes only waits above 0, so 0 is its retryImmediately)."
+  ^BackoffStrategy [{:keys [first-wait-ms max-wait-ms]}]
+  (if (or (zero? first-wait-ms) (zero? max-wait-ms))
+    (BackoffStrategy/retryImmediately)
+    (BackoffStrategy/exponentialDelayWithoutJitter (Duration/ofMillis first-wait-ms) (Duration/ofMillis max-wait-ms))))
+
 (defn- make-retry-strategy
   "The settings' :retries as the SDK's standard retry strategy: at most
    :max-retries more attempts, the first after :first-wait-ms, twice as
-   long each time, never longer than :max-wait-ms; only a busy answer or a
-   request that never connected."
-  ^RetryStrategy [{:keys [max-retries first-wait-ms max-wait-ms]}]
-  (let [backoff (BackoffStrategy/exponentialDelayWithoutJitter (Duration/ofMillis first-wait-ms) (Duration/ofMillis max-wait-ms))
+   long each time, never longer than :max-wait-ms (make-backoff); only a
+   busy answer or a request that never connected."
+  ^RetryStrategy [{:keys [max-retries] :as retries}]
+  (let [backoff (make-backoff retries)
         ^software.amazon.awssdk.retries.StandardRetryStrategy$Builder builder (StandardRetryStrategy/builder)]
     (.maxAttempts builder (int (inc max-retries)))
     (.backoffStrategy builder backoff)
