@@ -17,7 +17,7 @@
   ;; a reference what it does on delete, update and when checked; migrate! takes
   ;; {:tables :extensions :functions :views}; run-after-commit!, for delete-file-after-commit!;
   ;; run-in-transaction! takes the caller's :log, where an after-commit failure is written
-  io.github.p4ulcristian/groundwork-postgres  {:git/tag "v0.4.10" :git/sha "0956bdc"}
+  io.github.p4ulcristian/groundwork-postgres  {:git/tag "v0.5.0" :git/sha "bca8150"}
   ;; the upload's answer, JSON by the shaper the app makes and hands in
   io.github.p4ulcristian/groundwork-shaped-json    {:git/tag "v0.2.2" :git/sha "1c0fcf9"}
   ;; the app's log, handed in
