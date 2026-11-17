@@ -208,11 +208,21 @@
    :gates      nil
    :on-change  nil})
 
+(def ^:private receipts
+  "An app's table whose rows name a private file through a RESTRICT
+   reference: Postgres refuses with 23001, not NO ACTION's 23503."
+  (assoc orders
+         :table   :receipts
+         :columns [[:receipt/id :int {:primary-key? true}]
+                   [:receipt/file-key :string {:references {:to :files/key :on-delete :restrict :on-update :restrict
+                                                            :checked-at :statement}}]]
+         :indexes [{:columns [[:receipt/file-key :ascending :nulls-last]] :method :btree :ops {} :unique? false :where nil}]))
+
 (defn- run-sql! [pool text] (postgres/run-statement! pool (postgres/make-query-from-sql-text "test" text) {}))
 
 (defn- make-tables-afresh! [pool tables]
-  (run-sql! pool "DROP SCHEMA IF EXISTS groundwork_file_storage CASCADE; DROP SCHEMA IF EXISTS groundwork_postgres CASCADE; DROP TABLE IF EXISTS public.orders")
-  @(:slow-part (postgres/migrate! pool {:tables tables :extensions [] :functions [] :views []} []
+  (run-sql! pool "DROP SCHEMA IF EXISTS groundwork_file_storage CASCADE; DROP SCHEMA IF EXISTS groundwork_postgres CASCADE; DROP TABLE IF EXISTS public.orders; DROP TABLE IF EXISTS public.receipts")
+  @(:slow-part (postgres/migrate! pool {:tables tables :extensions [] :provider-extensions [] :functions [] :views []} []
                                   {:instant-part {:statement-timeout-ms 5000 :lock-timeout-ms 5000}
                                    :slow-part    {:statement-timeout-ms :none :lock-timeout-ms 5000}
                                    :log          (fn [_ _ _])})))
@@ -485,7 +495,7 @@
           keeper     (make-store (assoc (make-settings) :deletes? false) [step-kind])
           pdf?       {:key-prefix "invoices" :allowed-content-types #{"application/pdf"} :file-name nil}]
       (try
-        (make-tables-afresh! pool [(file-storage/files-table private) (file-storage/files-table public) orders])
+        (make-tables-afresh! pool [(file-storage/files-table private) (file-storage/files-table public) orders receipts])
         (setup/make-bucket-afresh! private)
         (setup/make-bucket-afresh! public)
 
@@ -531,6 +541,13 @@
             (is (= :still-named (file-storage/delete-file! private pool key)))
             (is (some? (file-storage/find-file private pool key)))
             (is (= (seq pdf) (seq (file-storage/read-file-bytes private key))) "the object stays with its row"))
+          (testing "a file named through a RESTRICT reference is kept too"
+            (run-sql! pool "DELETE FROM orders")
+            (run-sql! pool (str "INSERT INTO receipts VALUES (1, '" key "')"))
+            (is (= :still-named (file-storage/delete-file! private pool key)))
+            (is (= {:deleted 0 :still-named 1} (file-storage/delete-unnamed-files! private pool {:key-prefix "invoices/" :page-size 10})))
+            (is (some? (file-storage/find-file private pool key)))
+            (run-sql! pool "DELETE FROM receipts"))
           (testing "named by none: its row and its object go"
             (run-sql! pool "DELETE FROM orders")
             (reset! lines [])
@@ -591,7 +608,7 @@
               (is (= 1 (count (file-storage/list-files private pool {:key-prefix "elsewhere/" :after-key nil :limit 10}))) "another prefix is left")))
           (testing "counted by outcome"
             (is (= {"groundwork_file_storage_files_deleted_total{outcome=\"deleted\"}"     4.0
-                    "groundwork_file_storage_files_deleted_total{outcome=\"still-named\"}" 3.0
+                    "groundwork_file_storage_files_deleted_total{outcome=\"still-named\"}" 5.0
                     "groundwork_file_storage_files_deleted_total{outcome=\"not-found\"}"   1.0}
                    (read-counter private "groundwork_file_storage_files_deleted_total")))))
 
@@ -619,7 +636,7 @@
                       "groundwork_file_storage_cache_purges_total{outcome=\"failed\"}" 1.0}
                      (read-counter public "groundwork_file_storage_cache_purges_total"))))))
         (finally
-          (run-sql! pool "DROP TABLE IF EXISTS public.orders")
+          (run-sql! pool "DROP TABLE IF EXISTS public.orders; DROP TABLE IF EXISTS public.receipts")
           (doseq [store [private public keeper]] (file-storage/stop-file-storage! store))
           (postgres/stop-pool! pool)
           (.stop ^HttpServer (:server cloudflare) 0))))))

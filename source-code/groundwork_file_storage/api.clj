@@ -355,12 +355,18 @@
 ;; -----------------------------------------------------------------------------
 ;; Deleting
 
+(def ^:private still-named-states
+  "Postgres's codes for a delete refused while a row points at the one
+   deleted: 23503 for a reference's NO ACTION (:refuse), 23001 for its
+   RESTRICT (:restrict)."
+  #{"23503" "23001"})
+
 (defn- is-foreign-key-violation?
   "Whether Postgres refused because a row still points at the one deleted."
   [^Throwable e]
   (loop [t e]
     (cond (nil? t) false
-          (and (instance? java.sql.SQLException t) (= "23503" (.getSQLState ^java.sql.SQLException t))) true
+          (and (instance? java.sql.SQLException t) (contains? still-named-states (.getSQLState ^java.sql.SQLException t))) true
           :else (recur (.getCause t)))))
 
 (defn- delete-row-and-object!
