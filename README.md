@@ -10,7 +10,7 @@ server, each file checked by its bytes before it is stored; a file on disk
 is streamed to the bucket, never held whole.
 
 ```clojure
-io.github.p4ulcristian/groundwork-file-storage {:git/tag "v0.2.6" :git/sha "0219d1e"}
+io.github.p4ulcristian/groundwork-file-storage {:git/tag "v0.2.7" :git/sha "fd8c960"}
 ```
 
 Needs [groundwork-postgres](https://github.com/p4ulcristian/groundwork-postgres) (the files tables),
